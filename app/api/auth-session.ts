@@ -32,7 +32,13 @@ async function digestToken(token: string): Promise<string> {
 }
 
 async function passwordHash(password: string, salt: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
   const saltBytes = hexToBytes(salt);
   const saltBuffer = new ArrayBuffer(saltBytes.byteLength);
   new Uint8Array(saltBuffer).set(saltBytes);
