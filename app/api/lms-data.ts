@@ -2,13 +2,6 @@ import { asc } from "drizzle-orm";
 import { getDb } from "../../db";
 import { assignments, courses, lessons, modules, quizQuestions, quizzes } from "../../db/schema";
 
-export function requestUser(request: Request) {
-  const encodedName = request.headers.get("oai-authenticated-user-full-name");
-  const name = encodedName && request.headers.get("oai-authenticated-user-full-name-encoding") === "percent-encoded-utf-8" ? decodeURIComponent(encodedName) : null;
-  const email = request.headers.get("oai-authenticated-user-email") ?? "learner@atlas.local";
-  return { id: request.headers.get("oai-authenticated-user-id") ?? "local-demo-learner", email, name: name ?? email.split("@")[0].replace(/[._-]/g, " ") };
-}
-
 export async function ensureCurriculum() {
   const db = getDb();
   const present = await db.select({ id: courses.id }).from(courses).limit(1);

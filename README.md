@@ -63,14 +63,19 @@ The interface is responsive and includes a dedicated mobile layout. The [screens
 - **Tailwind CSS 4**
 - **Cloudflare Workers** and **D1**
 - **Drizzle ORM**
-- **ChatGPT Sites** identity headers when hosted in its authenticated environment
+- Password-based accounts with D1-backed, role-aware sessions
 
-The API is organized around learner dashboard actions and instructor course management:
+The API is organized around account sessions, learner actions, administrator provisioning, and instructor course management:
 
 | Route | Methods | Purpose |
 | --- | --- | --- |
-| `/api/dashboard` | `GET`, `POST` | Load learner data; enrol, complete lessons, submit quizzes, and submit assignments |
-| `/api/instructor` | `GET`, `POST`, `PUT`, `DELETE` | Read teaching metrics, create courses, publish or unpublish, and delete courses |
+| `/api/auth/session` | `GET`, `POST` | Read the current account or sign in |
+| `/api/auth/register` | `POST` | Create a learner account after administrator setup |
+| `/api/auth/bootstrap` | `POST` | Create the first administrator using a one-time deployment secret |
+| `/api/auth/logout` | `POST` | Revoke the current session |
+| `/api/admin/users/role` | `PUT` | Let an administrator grant or revoke instructor access |
+| `/api/dashboard` | `GET`, `POST` | Load the signed-in learner's data; enrol, complete lessons, submit quizzes, and assignments |
+| `/api/instructor` | `GET`, `POST`, `PUT`, `DELETE` | Instructor/admin-only metrics and course management |
 
 ## Run locally
 
@@ -102,6 +107,25 @@ npm run dev
 
 Vite runs the app with local Cloudflare bindings. On an empty database, the app initializes fictional course content for the demo. Local runtime and D1 state belong in `.wrangler/` and are excluded from Git. The `start` script serves a production build locally; run `npm run build` first.
 
+Before using a fresh local D1 database, build the Worker config and apply the checked-in SQL migrations in order:
+
+```powershell
+npm run build
+npx wrangler d1 execute site-creator-d1 --local --file=drizzle/0000_quick_proudstar.sql --config=dist/server/wrangler.json
+npx wrangler d1 execute site-creator-d1 --local --file=drizzle/0001_authentication.sql --config=dist/server/wrangler.json
+```
+
+Set a local-only bootstrap secret in the ignored `.dev.vars` file before starting the server. Generate a random value rather than reusing a password or committing the secret:
+
+```powershell
+node -e "require('node:fs').writeFileSync('.dev.vars', 'AUTH_BOOTSTRAP_SECRET='+require('node:crypto').randomBytes(32).toString('hex')+'\n', {flag:'wx'})"
+npm run dev
+```
+
+While the server is running, make a same-origin `POST` to `/api/auth/bootstrap` with the header `x-atlas-bootstrap-secret` set to the local secret and a JSON body containing the administrator's `name`, `email`, and a unique password of at least 12 characters. The endpoint succeeds only once and only while the users table is empty. Sign in through the app with that account, then use the admin-only `/api/admin/users/role` endpoint to grant instructor access to learner accounts. New registrations receive the learner role only. Never put real passwords or bootstrap secrets in source control, screenshots, shell history, or public logs.
+
+For a deployed Worker, apply both migrations to its configured D1 database before serving traffic, set `AUTH_BOOTSTRAP_SECRET` with `wrangler secret put AUTH_BOOTSTRAP_SECRET`, and complete the one-time bootstrap over the deployment's HTTPS origin. Remove the bootstrap secret immediately after setup with `wrangler secret delete AUTH_BOOTSTRAP_SECRET`. Cloudflare must serve the app over HTTPS: session cookies are always `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookies, and unsafe requests must have a matching `Origin`.
+
 ### Useful scripts
 
 | Command | Description |
@@ -112,19 +136,23 @@ Vite runs the app with local Cloudflare bindings. On an empty database, the app 
 | `npm run lint` | Run ESLint |
 | `npm run db:generate` | Generate Drizzle migrations from the schema |
 
-## Identity and demo data
+## Authentication, roles, and demo data
 
-In its hosted ChatGPT Sites environment, the app reads the platform-provided `oai-authenticated-user-*` request headers. The current local fallback is a fixed demo learner (`local-demo-learner`, `learner@atlas.local`); it is for previewing the interface, **not authentication**. The project does not include a standalone sign-in flow or role-based instructor authorization. Do not expose a deployment to real users without integrating and enforcing trusted authentication and authorization at the hosting boundary.
+Atlas no longer trusts client-supplied identity headers and has no fixed local demo identity. Passwords are salted and hashed with PBKDF2-HMAC-SHA-256 (600,000 iterations); only hashes of random session tokens are stored in D1. Sessions expire after seven days. The browser only receives the session in a `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookie. All write routes enforce same-origin requests. Learner records are read and written using the account from the validated session, and lesson, quiz, and assignment actions require enrollment. Quiz answers are not returned to learner clients.
 
-Course catalogue content and initial learner activity are fictional seed data. The screenshots also include synthetic local demo interactions, including a quiz attempt, assignment response, and instructor-created course. They do not depict a real account, production database, or live deployment. No local D1 database or runtime state is included in this repository.
+Roles are `learner`, `instructor`, and `admin`. The first administrator is provisioned out-of-band using a secret-protected, atomic, one-time bootstrap endpoint; an absent bootstrap secret never falls back to a default account or credential. Registration remains closed until this administrator exists and can create learners only. Only an administrator can grant instructor permissions, and instructor/admin checks are enforced by the API in addition to the UI.
+
+This implementation provides account authentication and access control, but it does not yet include email verification, password reset/recovery, multi-factor authentication, or login/signup rate limiting. Review those needs, configure Cloudflare HTTPS, apply migrations, provision the first administrator securely, and add appropriate operational monitoring before production use.
+
+Course catalogue content is fictional seed data. The screenshots include synthetic interactions and do not depict real accounts, a production database, or a live deployment. No local D1 database or runtime state is included in this repository.
 
 ## Project structure
 
 ```text
 app/
   api/                 Learner and instructor API routes
+  api/auth-session.ts  Password and session helpers
   page.tsx             Learning workspace and instructor studio
-  chatgpt-auth.ts      Hosted identity-header helpers
 db/                    Drizzle schema and D1 binding
 drizzle/               SQL migrations and schema snapshots
 lib/                   Connector contracts and shared helpers
