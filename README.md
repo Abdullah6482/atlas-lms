@@ -146,6 +146,30 @@ This implementation provides account authentication and access control, but it d
 
 Course catalogue content is fictional seed data. The screenshots include synthetic interactions and do not depict real accounts, a production database, or a live deployment. No local D1 database or runtime state is included in this repository.
 
+## Deploy to Cloudflare Workers
+
+The public repository uses `.openai/hosting.example.json` automatically when the ignored `.openai/hosting.json` is absent, so Cloudflare can build it without private workstation configuration. The example contains only the D1 binding name; production database IDs are supplied at deploy time and are never committed.
+
+1. In Cloudflare, create a **D1 database** named `atlas-lms` (or choose another name and use it consistently). Copy its database ID.
+2. In the Worker build settings, use Node.js `22.13` or newer, set the build command to `npm run build`, and the deploy command to `npm run deploy`. Turn off preview builds until a separate preview D1 database is configured.
+3. Add these build environment variables:
+   - `CLOUDFLARE_D1_DATABASE_ID`: the D1 database ID copied from Cloudflare. This is an identifier, not a credential.
+   - `CLOUDFLARE_D1_DATABASE_NAME`: the database name, for example `atlas-lms`.
+4. Before the first deploy, apply the schema from a local checkout that is authenticated with Wrangler. In PowerShell, after `npm ci` and `npm run build`, set the same two variables and run `npm run db:migrate:remote`:
+
+   ```powershell
+   $env:CLOUDFLARE_D1_DATABASE_NAME = "atlas-lms"
+   $env:CLOUDFLARE_D1_DATABASE_ID = "paste-the-database-id-from-cloudflare"
+   npx wrangler login
+   npm run db:migrate:remote
+   ```
+
+   This applies the checked-in migrations in order to the named **remote** database; review the target name and ID before running it. The database ID is not a password, but keep credentials and bootstrap secrets out of source control.
+5. Add `AUTH_BOOTSTRAP_SECRET` as a Cloudflare Worker secret, deploy, then use the one-time bootstrap endpoint from the HTTPS site to create the first administrator. Remove `AUTH_BOOTSTRAP_SECRET` from Worker secrets immediately after successful setup.
+6. Open the HTTPS Worker URL, sign in with the administrator account, register a fictional learner, and verify that learner and instructor actions are properly restricted before sharing the demo link.
+
+The deploy command refuses to run if the D1 database ID is missing or invalid, or the generated Worker config has no `DB` binding. The production database ID only modifies the generated file under `dist/`; it does not change tracked source files. Keep preview deployments disabled unless you create a separate D1 database and configure its ID for the preview environment.
+
 ## Project structure
 
 ```text
