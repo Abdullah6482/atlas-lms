@@ -35,7 +35,9 @@ export async function POST(request: Request) {
   let failureStage = "password-hash";
   try {
     const email = body.email.trim().toLowerCase();
-    const { hash, salt } = await passwordCredentials(email, body.password);
+    const { hash, salt } = await passwordCredentials(email, body.password, (stage) => {
+      failureStage = stage;
+    });
     const id = crypto.randomUUID();
     failureStage = "account-insert";
     const result = await env.DB.prepare(

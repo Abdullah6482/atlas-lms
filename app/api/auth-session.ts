@@ -31,10 +31,20 @@ async function digestToken(token: string): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-async function passwordHash(password: string, salt: string): Promise<string> {
+type PasswordHashStage = "password-key-import" | "password-key-derive";
+
+async function passwordHash(
+  password: string,
+  salt: string,
+  onStage?: (stage: PasswordHashStage) => void,
+): Promise<string> {
+  const passwordBytes = new TextEncoder().encode(password);
+  const passwordBuffer = new ArrayBuffer(passwordBytes.byteLength);
+  new Uint8Array(passwordBuffer).set(passwordBytes);
+  onStage?.("password-key-import");
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(password),
+    passwordBuffer,
     { name: "PBKDF2" },
     false,
     ["deriveBits"],
@@ -42,6 +52,7 @@ async function passwordHash(password: string, salt: string): Promise<string> {
   const saltBytes = hexToBytes(salt);
   const saltBuffer = new ArrayBuffer(saltBytes.byteLength);
   new Uint8Array(saltBuffer).set(saltBytes);
+  onStage?.("password-key-derive");
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt: saltBuffer, iterations: PASSWORD_ITERATIONS },
     key,
@@ -154,9 +165,13 @@ export async function verifyPassword(email: string, password: string) {
   return matches ? user : null;
 }
 
-export async function passwordCredentials(email: string, password: string) {
+export async function passwordCredentials(
+  email: string,
+  password: string,
+  onStage?: (stage: PasswordHashStage) => void,
+) {
   const salt = randomHex(16);
-  return { salt, hash: await passwordHash(password, salt) };
+  return { salt, hash: await passwordHash(password, salt, onStage) };
 }
 
 export function bootstrapSecretMatches(request: Request): boolean {
